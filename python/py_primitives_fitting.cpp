@@ -17,6 +17,7 @@ PYBIND11_MODULE(py_primitives_fitting, m) {
     py::enum_<PrimitivesType>(m, "PrimitivesType")
         .value("plane", PrimitivesType::plane)
         .value("sphere", PrimitivesType::sphere)
+        .value("cylinder", PrimitivesType::cylinder)
         .export_values();
 
     py::class_<PrimitivesDetectorConfig::ClusterParam>(m, "ClusterParam")
@@ -36,6 +37,8 @@ PYBIND11_MODULE(py_primitives_fitting, m) {
     py::class_<PrimitivesDetectorConfig::FittingParam>(m, "FittingParam")
         .def(py::init<>())
         .def_readwrite("type", &PrimitivesDetectorConfig::FittingParam::type)
+        .def_readwrite("enable_parallel", &PrimitivesDetectorConfig::FittingParam::enable_parallel)
+        .def_readwrite("max_iteration", &PrimitivesDetectorConfig::FittingParam::max_iteration)
         .def_readwrite("threshold", &PrimitivesDetectorConfig::FittingParam::threshold);
 
     py::class_<PrimitivesDetectorConfig::PreProcessParam>(m, "PreProcessParam")
@@ -82,7 +85,7 @@ PYBIND11_MODULE(py_primitives_fitting, m) {
              })
         .def("get_poses", &PrimitivesDetector::GetPoses)
         .def("get_clusters", [](PrimitivesDetector &self) {
-            Clusters cs = self.GetClusters();
+            auto cs = self.GetClusters();
             const size_t num = cs.size();
             std::vector<Eigen::MatrixX3d> cs_out(num);
             for (size_t i = 0; i < num; i++) {

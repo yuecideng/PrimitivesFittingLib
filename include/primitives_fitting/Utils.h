@@ -63,6 +63,9 @@ inline void GetMatrixByIndex(const std::vector<Eigen::Vector3d> &src,
                              const std::vector<size_t> &index, Eigen::Matrix3Xd &dst) {
     const size_t num = index.size();
     dst.setZero(3, num);
+    if (src.size() == 0) {
+        return;
+    }
 #pragma omp parallel for
     for (size_t i = 0; i < num; i++) {
         dst.col(i) = src[index[i]];

@@ -1,8 +1,15 @@
 # PrimitivesFittingLib
 An unified library for fitting primitives from 3D point cloud data with both C++&amp;Python API.
 
+The supported primitives type:
+- Plane
+- Sphere
+- Cylinder
+
 ## How to build
 ### Requirements
+- `Cmake` >= 3.13
+- `Python` >= 3.6
 - `Open3D` >= 12.0 
 - `pybind11`
 - `Eigen`
@@ -25,7 +32,11 @@ An unified library for fitting primitives from 3D point cloud data with both C++
     export PYTHONPATH="$PYTHONPATH:</path/to/installation>/PrimitivesFittingLib/lib/python"
     export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:</path/to/installation>/PrimitivesFittingLib/lib"
     ```
+### How to use
+The example python scripts can be found in `examples/python`. You can run it after you install the library successfully.
+
+###
+
 ## TODO
-1. Improve and implement cylinder fitting
-2. Add c++&python example 
-3. Add brief description of algorithm pipeline
+1. Add c++n example 
+2. Add brief description of algorithm pipeline

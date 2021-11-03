@@ -19,9 +19,9 @@ std::tuple<Eigen::Matrix3d, Eigen::Vector3d> ComputeCovarianceMatrixAndMean(
 }
 
 PrimitivesDetectorConfig::PrimitivesDetectorConfig() {
-    m_preprocess_param = {0.001, false};
-    m_fitting_param = {PrimitivesType::plane, 0.002};
-    m_cluster_param = {4, std::numeric_limits<size_t>::max(), 0.005, 15.0};
+    m_preprocess_param = {0.002, false};
+    m_fitting_param = {PrimitivesType::plane, 0.005};
+    m_cluster_param = {4, std::numeric_limits<size_t>::max(), 0.01, 15.0};
     m_filtering_param = {0.01, 0.1};
 }
 
@@ -106,7 +106,7 @@ std::vector<std::vector<size_t>> PrimitivesDetector::FindNeighbourHood(
 }
 
 void PrimitivesDetector::SmoothPointClouds(std::vector<std::vector<size_t>> &neighbours,
-                                               open3d::geometry::PointCloud &pc, double tolerance) {
+                                           open3d::geometry::PointCloud &pc, double tolerance) {
     const size_t num = pc.points_.size();
 
 #pragma omp parallel for shared(neighbours, pc)
@@ -149,6 +149,9 @@ std::vector<Eigen::Matrix4d> PrimitivesDetector::FilterClusterAndCalcPose(
     case PrimitivesType::sphere:
         return FilterClusterAndCalcPoseUsingSphereModel(clusters);
 
+    case PrimitivesType::cylinder:
+        return FilterClusterAndCalcPoseUsingCylinderModel(clusters);
+
     default:
         std::cout << "use wrong primitives type, use plane instead" << std::endl;
         return FilterClusterAndCalcPoseUsingPlaneModel(clusters);
@@ -166,14 +169,17 @@ std::vector<Eigen::Matrix4d> PrimitivesDetector::FilterClusterAndCalcPoseUsingPl
         ransac::RANSACPlane plane_finder;
         ransac::Plane plane_param;
         std::vector<size_t> indices;
-        const bool ret = plane_finder.FitModel(clusters[i], m_config.m_fitting_param.threshold,
+        plane_finder.SetParallel(m_config.m_fitting_param.enable_parallel);
+        plane_finder.SetMaxIteration(m_config.m_fitting_param.max_iteration);
+        plane_finder.SetPointCloud(clusters[i].points_);
+        const bool ret = plane_finder.FitModel(m_config.m_fitting_param.threshold,
                                                plane_param, indices);
         if (!ret) {
             continue;
         }
 
         std::vector<Eigen::Vector3d> inliers;
-        utils::GetVectorByIndex(clusters[i], indices, inliers);
+        utils::GetVectorByIndex(clusters[i].points_, indices, inliers);
 
         const open3d::geometry::PointCloud o3d(inliers);
         const open3d::geometry::OrientedBoundingBox bbox = o3d.GetOrientedBoundingBox();
@@ -224,7 +230,10 @@ std::vector<Eigen::Matrix4d> PrimitivesDetector::FilterClusterAndCalcPoseUsingSp
         // sphere fitter has error in FitModel function when in some special case, use exception to
         // prevent from broken
         try {
-            ret = sphere_finder.FitModel(clusters[i], m_config.m_fitting_param.threshold,
+            sphere_finder.SetPointCloud(clusters[i].points_);
+            sphere_finder.SetParallel(m_config.m_fitting_param.enable_parallel);
+            sphere_finder.SetMaxIteration(m_config.m_fitting_param.max_iteration);
+            ret = sphere_finder.FitModel(m_config.m_fitting_param.threshold,
                                          sphere_param, indices);
         } catch (const std::exception &e) {
             std::cerr << e.what() << '\n';
@@ -236,7 +245,7 @@ std::vector<Eigen::Matrix4d> PrimitivesDetector::FilterClusterAndCalcPoseUsingSp
         }
 
         std::vector<Eigen::Vector3d> inliers;
-        utils::GetVectorByIndex(clusters[i], indices, inliers);
+        utils::GetVectorByIndex(clusters[i].points_, indices, inliers);
 #pragma omp critical
         {
             if (sphere_param.m_parameters(3) > min_bound &&
@@ -266,21 +275,72 @@ std::vector<Eigen::Matrix4d> PrimitivesDetector::FilterClusterAndCalcPoseUsingSp
     return pose_out;
 }
 
-bool PrimitivesDetector::Detect(
-    const std::vector<Eigen::Vector3d> &points) {
+std::vector<Eigen::Matrix4d> PrimitivesDetector::FilterClusterAndCalcPoseUsingCylinderModel(
+    const Clusters &clusters) {
+    std::vector<Eigen::Matrix4d> pose_out;
+
+    const double min_bound = m_config.m_filtering_param.min_bound;
+    const double max_bound = m_config.m_filtering_param.max_bound;
+#pragma omp parallel for shared(clusters)
+    for (size_t i = 0; i < clusters.size(); ++i) {
+        ransac::RANSACCylinder cylinder_finder;
+        ransac::Cylinder cylinder_param;
+        std::vector<size_t> indices;
+        bool ret;
+        try {
+            cylinder_finder.SetParallel(m_config.m_fitting_param.enable_parallel);
+            cylinder_finder.SetMaxIteration(m_config.m_fitting_param.max_iteration);
+            cylinder_finder.SetPointCloud(clusters[i].points_);
+            cylinder_finder.SetNormals(clusters[i].normals_);
+            ret = cylinder_finder.FitModel(m_config.m_fitting_param.threshold,
+                                           cylinder_param, indices);
+        } catch (const std::exception &e) {
+            std::cerr << e.what() << '\n';
+            ret = false;
+        }
+
+        if (!ret) {
+            continue;
+        }
+
+        std::vector<Eigen::Vector3d> inliers;
+        utils::GetVectorByIndex(clusters[i].points_, indices, inliers);
+#pragma omp critical
+        {
+            if (cylinder_param.m_parameters(6) > min_bound &&
+                cylinder_param.m_parameters(6) < max_bound) {
+                m_clusters.emplace_back(inliers);
+
+                Eigen::Matrix4d pose = Eigen::Matrix4d::Identity();
+                pose.block<3, 1>(0, 3) = cylinder_param.m_parameters.head<3>();
+                const Eigen::Vector3d x_axis = cylinder_param.m_parameters.segment<3>(3);
+                const Eigen::Vector3d z_axis = Eigen::Vector3d(0, 0, 0) - cylinder_param.m_parameters.head<3>();
+                Eigen::Vector3d y_axis = z_axis.cross(x_axis);
+                pose.block<3, 1>(0, 0) = x_axis;
+                pose.block<3, 1>(0, 1) = y_axis;
+                pose.block<3, 1>(0, 2) = z_axis;
+
+                pose_out.emplace_back(pose);
+                m_primitives.emplace_back(cylinder_param);
+            }
+        }
+    }
+    return pose_out;
+}
+
+bool PrimitivesDetector::Detect(const std::vector<Eigen::Vector3d> &points) {
     const open3d::geometry::PointCloud o3d_pc(points);
     return Detect(o3d_pc);
 }
 
-bool PrimitivesDetector::Detect(
-    const std::vector<Eigen::Vector3d> &points, const std::vector<Eigen::Vector3d> &normals) {
+bool PrimitivesDetector::Detect(const std::vector<Eigen::Vector3d> &points,
+                                const std::vector<Eigen::Vector3d> &normals) {
     open3d::geometry::PointCloud o3d_pc(points);
     o3d_pc.normals_ = normals;
     return Detect(o3d_pc);
 }
 
-bool PrimitivesDetector::Detect(
-    const open3d::geometry::PointCloud &points) {
+bool PrimitivesDetector::Detect(const open3d::geometry::PointCloud &points) {
     const size_t points_num = points.points_.size();
 
     // clear previous results
@@ -308,9 +368,7 @@ bool PrimitivesDetector::Detect(
 
     Clusters clusters(cluster_indices.size());
     for (size_t i = 0; i < cluster_indices.size(); ++i) {
-        std::vector<Eigen::Vector3d> cluster;
-        utils::GetVectorByIndex(pcd->points_, cluster_indices[i], cluster);
-        clusters[i] = cluster;
+        clusters[i] = *pcd->SelectByIndex(cluster_indices[i]);
     }
 
     m_poses = FilterClusterAndCalcPose(clusters);
@@ -318,8 +376,13 @@ bool PrimitivesDetector::Detect(
     return true;
 }
 
-Clusters PrimitivesDetector::GetClusters() {
-    return m_clusters;
+std::vector<std::vector<Eigen::Vector3d>> PrimitivesDetector::GetClusters() {
+    std::vector<std::vector<Eigen::Vector3d>> clusters;
+    for (auto &c : m_clusters) {
+        clusters.push_back(c.points_);
+    }
+
+    return clusters;
 }
 
 std::vector<ransac::Model> PrimitivesDetector::GetPrimitives() {

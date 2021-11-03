@@ -9,14 +9,14 @@
 
 namespace primitives_fitting {
 
-typedef std::vector<std::vector<Eigen::Vector3d>> Clusters;
+typedef std::vector<open3d::geometry::PointCloud> Clusters;
 
 enum PrimitivesType : uint8_t {
     // plane usually refer to single face of a box
     plane = 0,
     sphere = 1,
     // TODO: cylinder model pose detection is not valid due to clinder fitting is not well
-    // cylinder = 2,
+    cylinder = 2,
 };
 
 class PrimitivesDetectorConfig {
@@ -40,6 +40,9 @@ public:
         PrimitivesType type;
         // L2 measurement for inlier selection of ransac algorithm
         double threshold;
+        // if enable parallel, the parallel ransac will be used and max iteration should be set
+        bool enable_parallel;
+        int max_iteration;
     };
 
     /**
@@ -141,6 +144,15 @@ private:
      */
     std::vector<Eigen::Matrix4d> FilterClusterAndCalcPoseUsingSphereModel(const Clusters &clusters);
 
+    /**
+     * @brief filter cluster then compute pose using cylinder model
+     * 
+     * @param clusters 
+     * @return std::vector<Eigen::Matrix4d> 
+     */
+    std::vector<Eigen::Matrix4d> FilterClusterAndCalcPoseUsingCylinderModel(
+        const Clusters &clusters);
+
 public:
     PrimitivesDetector();
     PrimitivesDetector(const PrimitivesDetectorConfig &config);
@@ -184,9 +196,9 @@ public:
     /**
      * @brief retuen filtered clusters
      *
-     * @return Clusters
+     * @return std::vector<Eigen::Vector3d>
      */
-    Clusters GetClusters();
+    std::vector<std::vector<Eigen::Vector3d>> GetClusters();
 
     /**
      * @brief Get the Primitives parameters
@@ -197,10 +209,10 @@ public:
 
     /**
      * @brief Get the Poses of primitives
-     * 
+     *
      * If primitives is plane, the translation is the center of plane and the z axis is normal to
      * the plane surface
-     * 
+     *
      * if primitives is sphere, the translation is the center of sphere and the z axis is orient to
      * origin
      *

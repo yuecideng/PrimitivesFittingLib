@@ -109,8 +109,9 @@ public:
 };
 
 /**
- * @brief the cylinder is describe as [x, y, z, nx, ny, nz, r], where the first three are center
- * the second three are normal vector or called direction vector, the last one is radius
+ * @brief the cylinder is describe as [x, y, z, nx, ny, nz, r], where the first three is a point on
+ * the cylinder axis and the second three are normal vector or called direction vector, the last one
+ * is radius
  *
  */
 class Cylinder : public Model {
@@ -141,21 +142,25 @@ public:
      * @brief fit model using least sample points
      *
      * @param points
+     * @param normals
      * @param model
      * @return true
      * @return false
      */
-    virtual bool MinimalFit(const Eigen::Matrix3Xd &points, Model &model) const = 0;
+    virtual bool MinimalFit(const Eigen::Matrix3Xd &points, const Eigen::Matrix3Xd &normals,
+                            Model &model) const = 0;
 
     /**
      * @brief fit model using least square method
      *
      * @param points
+     * @param normals
      * @param model
      * @return true
      * @return false
      */
-    virtual bool GeneralFit(const Eigen::Matrix3Xd &points, Model &model) const = 0;
+    virtual bool GeneralFit(const Eigen::Matrix3Xd &points, const Eigen::Matrix3Xd &normals,
+                            Model &model) const = 0;
 
     /**
      * @brief evaluate point distance to model to determine inlier&outlier
@@ -175,7 +180,8 @@ class PlaneEstimator : public ModelEstimator {
 public:
     PlaneEstimator() : ModelEstimator(3) {}
 
-    bool MinimalFit(const Eigen::Matrix3Xd &points, Model &model) const override {
+    bool MinimalFit(const Eigen::Matrix3Xd &points, const Eigen::Matrix3Xd &normals,
+                    Model &model) const override {
         if (!MinimalCheck(points.cols())) {
             return false;
         }
@@ -198,7 +204,8 @@ public:
         return true;
     }
 
-    bool GeneralFit(const Eigen::Matrix3Xd &points, Model &model) const override {
+    bool GeneralFit(const Eigen::Matrix3Xd &points, const Eigen::Matrix3Xd &normals,
+                    Model &model) const override {
         const size_t num = points.cols();
         if (!MinimalCheck(num)) {
             return false;
@@ -256,7 +263,8 @@ private:
         PlaneEstimator fit;
         Plane plane;
         const Eigen::Matrix3Xd temp = points(Eigen::all, {0, 1, 2});
-        const bool ret = fit.MinimalFit(temp, plane);
+        Eigen::Matrix3Xd fake_normals;
+        const bool ret = fit.MinimalFit(temp, fake_normals, plane);
         if (!ret) {
             return false;
         }
@@ -266,7 +274,8 @@ private:
 public:
     SphereEstimator() : ModelEstimator(4) {}
 
-    bool MinimalFit(const Eigen::Matrix3Xd &points, Model &model) const override {
+    bool MinimalFit(const Eigen::Matrix3Xd &points, const Eigen::Matrix3Xd &normals,
+                    Model &model) const override {
         if (!MinimalCheck(points.cols()) || !ValidationCheck(points)) {
             return false;
         }
@@ -319,7 +328,8 @@ public:
         return true;
     }
 
-    bool GeneralFit(const Eigen::Matrix3Xd &points, Model &model) const override {
+    bool GeneralFit(const Eigen::Matrix3Xd &points, const Eigen::Matrix3Xd &normals,
+                    Model &model) const override {
         const size_t num = points.cols();
         if (!MinimalCheck(num)) {
             return false;
@@ -361,97 +371,81 @@ public:
     }
 };
 
-// TODO: the cylinder estimator currently is not very well, recommanded to use parallel
-// ransac with large number of max iteration (more than 5000)
+/**
+ * @brief Cylinder estimation reference from PCL implementation.
+ *
+ */
 class CylinderEstimator : public ModelEstimator {
 public:
-    CylinderEstimator() : ModelEstimator(3) {}
+    CylinderEstimator() : ModelEstimator(2) {}
 
-    bool MinimalFit(const Eigen::Matrix3Xd &points, Model &model) const override {
+    bool MinimalFit(const Eigen::Matrix3Xd &points, const Eigen::Matrix3Xd &normals,
+                    Model &model) const {
         if (!MinimalCheck(points.cols())) {
             return false;
         }
-        const Eigen::Vector3d point1 = points.col(0);
-        const Eigen::Vector3d point2 = points.col(1);
-        const Eigen::Vector3d point3 = points.col(2);
 
-        const Eigen::Matrix4d transform = utils::CalcCoordinateTransform(point1, point2, point3);
-        const Eigen::Matrix4d transform_inv = transform.inverse();
-
-        const Eigen::Vector3d p1 =
-            (transform_inv.block(0, 0, 3, 3) * point1 + transform_inv.block(0, 3, 3, 1))
-                .transpose();
-        const Eigen::Vector3d p2 =
-            (transform_inv.block(0, 0, 3, 3) * point2 + transform_inv.block(0, 3, 3, 1))
-                .transpose();
-        const Eigen::Vector3d p3 =
-            (transform_inv.block(0, 0, 3, 3) * point3 + transform_inv.block(0, 3, 3, 1))
-                .transpose();
-
-        // Colinear check
-        Eigen::Matrix3d half_determinant;
-        half_determinant << p1(0), p2(0), p3(0), p1(1), p2(1), p3(1), 1, 1, 1;
-
-        const double flag = half_determinant.determinant();
-
-        if (flag == 0) {
+        if (fabs(points(0, 0) - points(0, 1) <= std::numeric_limits<double>::epsilon() &&
+                 fabs(points(1, 0) - points(1, 1)) <= std::numeric_limits<float>::epsilon() &&
+                 fabs(points(2, 0) - points(2, 1)) <= std::numeric_limits<float>::epsilon())) {
             return false;
-        } else {
-            Eigen::Matrix3d a;
-            Eigen::Matrix3d b;
-            Eigen::Matrix3d c;
-            Eigen::Matrix3d d;
-
-            a << p1(0), p1(1), 1, p2(0), p2(1), 1, p3(0), p3(1), 1;
-
-            b << p1(0) * p1(0) + p1(1) * p1(1), p1(1), 1, p2(0) * p2(0) + p2(1) * p2(1), p2(1), 1,
-                p3(0) * p3(0) + p3(1) * p3(1), p3(1), 1;
-
-            c << p1(0) * p1(0) + p1(1) * p1(1), p1(0), 1, p2(0) * p2(0) + p2(1) * p2(1), p2(0), 1,
-                p3(0) * p3(0) + p3(1) * p3(1), p3(0), 1;
-
-            d << p1(0) * p1(0) + p1(1) * p1(1), p1(0), p1(1), p2(0) * p2(0) + p2(1) * p2(1), p2(0),
-                p2(1), p3(0) * p3(0) + p3(1) * p3(1), p3(0), p3(1);
-
-            const double A = a.determinant();
-            const double B = -b.determinant();
-            const double C = c.determinant();
-            const double D = -d.determinant();
-
-            double x = -B / (2 * A);
-            double y = -C / (2 * A);
-            double z = 0;
-            const double r = sqrt((B * B + C * C - 4 * A * D) / (4 * A * A));
-
-            Eigen::Vector3d point_plane(x, y, z);
-            point_plane = transform.block(0, 0, 3, 3) * point_plane + transform.block(0, 3, 3, 1);
-
-            const double nx = transform(0, 2);
-            const double ny = transform(1, 2);
-            const double nz = transform(2, 2);
-
-            model.m_parameters(0) = point_plane(0);
-            model.m_parameters(1) = point_plane(1);
-            model.m_parameters(2) = point_plane(2);
-            model.m_parameters(3) = nx;
-            model.m_parameters(4) = ny;
-            model.m_parameters(5) = nz;
-            model.m_parameters(6) = r;
-
-            return true;
         }
-    }
+
+        const Eigen::Vector4d p1(points(0, 0), points(1, 0), points(2, 0), 0);
+        const Eigen::Vector4d p2(points(0, 1), points(1, 1), points(2, 1), 0);
+
+        const Eigen::Vector4d n1(normals(0, 0), normals(1, 0), normals(2, 0), 0);
+        const Eigen::Vector4d n2(normals(0, 1), normals(1, 1), normals(2, 1), 0);
+        const Eigen::Vector4d w = n1 + p1 - p2;
+
+        const double a = n1.dot(n1);
+        const double b = n1.dot(n2);
+        const double c = n2.dot(n2);
+        const double d = n1.dot(w);
+        const double e = n2.dot(w);
+        const double denominator = a * c - b * b;
+        double sc, tc;
+
+        if (denominator < 1e-8)  // The lines are almost parallel
+        {
+            sc = 0;
+            tc = (b > c ? d / b : e / c);  // Use the largest denominator
+        } else {
+            sc = (b * e - c * d) / denominator;
+            tc = (a * e - b * d) / denominator;
+        }
+
+        const Eigen::Vector4d line_pt = p1 + n1 + sc * n1;
+        Eigen::Vector4d line_dir = p2 + tc * n2 - line_pt;
+        line_dir.normalize();
+
+        model.m_parameters[0] = line_pt[0];
+        model.m_parameters[1] = line_pt[1];
+        model.m_parameters[2] = line_pt[2];
+        model.m_parameters[3] = line_dir[0];
+        model.m_parameters[4] = line_dir[1];
+        model.m_parameters[5] = line_dir[2];
+        // cylinder radius
+        model.m_parameters[6] = utils::CalcPoint2LineDistance<double>(
+            points.col(0), line_pt.head<3>(), line_dir.head<3>());
+
+        return true;
+    }  // namespace ransac
 
     /**
      * @brief the general fit of clinder model is not implemented yet
+     * TODO: 1. linear least square method. 2. nonlinear least square method.
      *
      * @param points
      * @param model
      * @return true
      * @return false
      */
-    bool GeneralFit(const Eigen::Matrix3Xd &points, Model &model) const override {
-        // TODO: implement a better cylinder fit method
+    bool GeneralFit(const Eigen::Matrix3Xd &points, const Eigen::Matrix3Xd &normals,
+                    Model &model) const {
+        // if (!MinimalCheck(points.cols())) {
+        //     return false;
+        // }
         return true;
     }
 
@@ -462,11 +456,11 @@ public:
         const Eigen::Vector3d center(w(0), w(1), w(2));
 
         const Eigen::Vector3d ref(w(0) + w(3), w(1) + w(4), w(2) + w(5));
-        double d = utils::CalcPoint2LineDistance(query, center, ref);
+        double d = utils::CalcPoint2LineDistance<double>(query, center, ref);
 
         return abs(d - w(6));
     }
-};
+};  // namespace primitives_fitting
 
 template <class ModelEstimator, class Model, class Sampler>
 class RANSAC {
@@ -477,6 +471,30 @@ public:
         , m_max_iteration(1000)
         , m_probability(0.99)
         , m_enable_parallel(false) {}
+
+    /**
+     * @brief Set Point Cloud to be used for RANSAC
+     *
+     * @param points
+     */
+    void SetPointCloud(const std::vector<Eigen::Vector3d> &points) {
+        if (!m_points.empty()) {
+            m_points.clear();
+        }
+        m_points = points;
+    }
+
+    /**
+     * @brief Set Normals to be used for RANSAC
+     *
+     * @param normals
+     */
+    void SetNormals(const std::vector<Eigen::Vector3d> &normals) {
+        if (!m_normals.empty()) {
+            m_normals.clear();
+        }
+        m_normals = normals;
+    }
 
     /**
      * @brief set probability to find the best model
@@ -502,26 +520,24 @@ public:
     /**
      * @brief fit model with given parameters
      *
-     * @param points
      * @param threshold
      * @param model
      * @param inlier_indices
      * @return true
      * @return false
      */
-    bool FitModel(const std::vector<Eigen::Vector3d> &points, double threshold, Model &model,
-                  std::vector<size_t> &inlier_indices) {
+    bool FitModel(double threshold, Model &model, std::vector<size_t> &inlier_indices) {
         Clear();
-        const size_t num_points = points.size();
+        const size_t num_points = m_points.size();
         if (num_points < m_estimator.m_minimal_sample) {
             std::cout << "can not fit model due to lack of points" << std::endl;
             return false;
         }
 
         if (m_enable_parallel) {
-            return FitModelParallel(points, threshold, model, inlier_indices);
+            return FitModelParallel(threshold, model, inlier_indices);
         } else {
-            return FitModelVanilla(points, threshold, model, inlier_indices);
+            return FitModelVanilla(threshold, model, inlier_indices);
         }
     }
 
@@ -534,18 +550,16 @@ private:
     /**
      * @brief refine model using general fitting of estimator, usually is least square method.
      *
-     * @param points
      * @param threshold
      * @param model
      * @param inlier_indices
      * @return true
      * @return false
      */
-    bool RefineModel(const std::vector<Eigen::Vector3d> &points, double threshold, Model &model,
-                     std::vector<size_t> &inlier_indices) {
+    bool RefineModel(double threshold, Model &model, std::vector<size_t> &inlier_indices) {
         inlier_indices.clear();
-        for (size_t i = 0; i < points.size(); ++i) {
-            const double d = m_estimator.CalcPointToModelDistance(points[i], model);
+        for (size_t i = 0; i < m_points.size(); ++i) {
+            const double d = m_estimator.CalcPointToModelDistance(m_points[i], model);
             if (d < threshold) {
                 inlier_indices.emplace_back(i);
             }
@@ -553,25 +567,25 @@ private:
 
         // improve best model using general fitting
         Eigen::Matrix3Xd inlier_points;
-        utils::GetMatrixByIndex(points, inlier_indices, inlier_points);
+        utils::GetMatrixByIndex(m_points, inlier_indices, inlier_points);
+        Eigen::Matrix3Xd inlier_normals;
+        utils::GetMatrixByIndex(m_normals, inlier_indices, inlier_normals);
 
-        return m_estimator.GeneralFit(inlier_points, model);
+        return m_estimator.GeneralFit(inlier_points, inlier_normals, model);
     }
 
     /**
      * @brief vanilla ransac fitting method, the iteration number is varying with inlier number in
      * each iteration
      *
-     * @param points
      * @param threshold
      * @param model
      * @param inlier_indices
      * @return true
      * @return false
      */
-    bool FitModelVanilla(const std::vector<Eigen::Vector3d> &points, double threshold, Model &model,
-                         std::vector<size_t> &inlier_indices) {
-        const size_t num_points = points.size();
+    bool FitModelVanilla(double threshold, Model &model, std::vector<size_t> &inlier_indices) {
+        const size_t num_points = m_points.size();
         std::vector<size_t> indices_list(num_points);
         std::iota(std::begin(indices_list), std::end(indices_list), 0);
 
@@ -582,14 +596,18 @@ private:
             const std::vector<size_t> sample_indices =
                 m_sampler(indices_list, m_estimator.m_minimal_sample);
             Eigen::Matrix3Xd sample;
-            utils::GetMatrixByIndex(points, sample_indices, sample);
+            utils::GetMatrixByIndex(m_points, sample_indices, sample);
 
-            const bool ret = m_estimator.MinimalFit(sample, model);
+            bool ret;
+            Eigen::Matrix3Xd sample_normals;
+            utils::GetMatrixByIndex(m_normals, sample_indices, sample_normals);
+            ret = m_estimator.MinimalFit(sample, sample_normals, model);
+
             if (!ret) {
                 continue;
             }
 
-            const auto result = EvaluateModel(points, threshold, model);
+            const auto result = EvaluateModel(m_points, threshold, model);
             double fitness = std::get<0>(result);
             double inlier_rmse = std::get<1>(result);
 
@@ -617,25 +635,23 @@ private:
         std::cout << "[vanilla ransac] find best model with " << 100 * m_fitness
                   << "% inliers and run " << count << " iterations" << std::endl;
 
-        const bool ret = RefineModel(points, threshold, best_model, inlier_indices);
+        const bool ret = RefineModel(threshold, best_model, inlier_indices);
         model = best_model;
         return ret;
     }
 
     /**
-     * @brief parallel ransac fitting method, the iteration number is fixed and use OpenMP to speed up.
-     * Usually used if you want more accurate result.
+     * @brief parallel ransac fitting method, the iteration number is fixed and use OpenMP to speed
+     * up. Usually used if you want more accurate result.
      *
-     * @param points
      * @param threshold
      * @param model
      * @param inlier_indices
      * @return true
      * @return false
      */
-    bool FitModelParallel(const std::vector<Eigen::Vector3d> &points, double threshold,
-                          Model &model, std::vector<size_t> &inlier_indices) {
-        const size_t num_points = points.size();
+    bool FitModelParallel(double threshold, Model &model, std::vector<size_t> &inlier_indices) {
+        const size_t num_points = m_points.size();
 
         std::vector<size_t> indices_list(num_points);
         std::iota(std::begin(indices_list), std::end(indices_list), 0);
@@ -646,15 +662,19 @@ private:
             const std::vector<size_t> sample_indices =
                 m_sampler(indices_list, m_estimator.m_minimal_sample);
             Eigen::Matrix3Xd sample;
-            utils::GetMatrixByIndex(points, sample_indices, sample);
+            utils::GetMatrixByIndex(m_points, sample_indices, sample);
 
             Model model_trial;
-            const bool ret = m_estimator.MinimalFit(sample, model_trial);
+            bool ret;
+            Eigen::Matrix3Xd sample_normals;
+            utils::GetMatrixByIndex(m_normals, sample_indices, sample_normals);
+            ret = m_estimator.MinimalFit(sample, sample_normals, model_trial);
+      
             if (!ret) {
                 continue;
             }
 
-            const auto result = EvaluateModel(points, threshold, model_trial);
+            const auto result = EvaluateModel(m_points, threshold, model_trial);
             double fitness = std::get<0>(result);
             double inlier_rmse = std::get<1>(result);
 #pragma omp critical
@@ -681,7 +701,7 @@ private:
         std::cout << "[parallel ransac] find best model with " << 100 * std::get<0>(best_result)
                   << "% inliers" << std::endl;
 
-        const bool ret = RefineModel(points, threshold, best_model, inlier_indices);
+        const bool ret = RefineModel(threshold, best_model, inlier_indices);
         model = best_model;
 
         return ret;
@@ -716,6 +736,9 @@ private:
     }
 
 private:
+    std::vector<Eigen::Vector3d> m_points;
+    std::vector<Eigen::Vector3d> m_normals;
+
     double m_probability;
     size_t m_max_iteration;
     double m_fitness;
