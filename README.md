@@ -1,10 +1,16 @@
 # PrimitivesFittingLib
-An unified library for fitting primitives from 3D point cloud data with both C++&amp;Python API.
+An unified library for fitting multiple primitives from 3D point cloud data with both C++&amp;Python API.
 
 The supported primitives type:
 - Plane
 - Sphere
 - Cylinder
+
+<p float="left">
+  <img src="data/imgs/plane.png" width="250" />
+  <img src="data/imgs/sphere.png" width="250" /> 
+  <img src="data/imgs/cylinder.png" width="250" />
+</p>
 
 ## How to build
 ### Requirements
