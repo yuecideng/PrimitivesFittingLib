@@ -7,9 +7,9 @@ The supported primitives type:
 - Cylinder
 
 <p float="left">
-  <img src="data/imgs/plane.png" width="250" />
-  <img src="data/imgs/sphere.png" width="250" /> 
-  <img src="data/imgs/cylinder.png" width="250" />
+  <img src="data/imgs/plane.png" width="250" height=150/>
+  <img src="data/imgs/sphere.png" width="250" height=150/> 
+  <img src="data/imgs/cylinder.png" width="250" height=150/>
 </p>
 
 ## How to build
