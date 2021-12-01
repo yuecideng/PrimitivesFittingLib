@@ -1,5 +1,5 @@
 # PrimitivesFittingLib
-An unified library for fitting multiple primitives from 3D point cloud data with both C++&amp;Python API.
+An unified library for fitting multiple primitives from 3D point cloud data using segmentation and RANSAC algorithm with both C++&amp;Python API.
 
 The supported primitives type:
 - Plane
@@ -42,7 +42,3 @@ The supported primitives type:
 The example python scripts can be found in `examples/python`. You can run it after you install the library successfully.
 
 ###
-
-## TODO
-1. Add c++n example 
-2. Add brief description of algorithm pipeline
