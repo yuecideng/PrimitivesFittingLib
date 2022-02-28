@@ -146,9 +146,9 @@ private:
 
     /**
      * @brief filter cluster then compute pose using cylinder model
-     * 
-     * @param clusters 
-     * @return std::vector<Eigen::Matrix4d> 
+     *
+     * @param clusters
+     * @return std::vector<Eigen::Matrix4d>
      */
     std::vector<Eigen::Matrix4d> FilterClusterAndCalcPoseUsingCylinderModel(
         const Clusters &clusters);

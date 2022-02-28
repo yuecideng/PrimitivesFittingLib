@@ -29,7 +29,7 @@ if(OPENMP_FOUND)
 endif()
 
 # find open3d library
-set(Open3D_DIR "$ENV{HOME}/Rvbust/Install/Open3D/lib/cmake/Open3D" CACHE FILEPATH "Set to find Open3D")
+set(Open3D_DIR "/usr/local/lib/cmake/Open3D" CACHE FILEPATH "Set to find Open3D")
 find_package(Open3D REQUIRED NO_DEFAULT_PATH)
 
 set(CMAKE_INSTALL_PREFIX $ENV{HOME} CACHE PATH "install path")
