@@ -1,4 +1,7 @@
 # PrimitivesFittingLib
+
+**(New) A new and more generalized implementation can be found in [Misc3D](https://github.com/yuecideng/Misc3D)**
+
 An unified library for fitting multiple primitives from 3D point cloud data using segmentation and RANSAC algorithm with both C++&amp;Python API.
 
 The supported primitives type:
